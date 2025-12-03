@@ -157,6 +157,14 @@ protected:
    */
   void validateOrientations(std::vector<geometry_msgs::msg::PoseStamped> & path);
 
+  /**
+   * @brief Cost at a point
+   * @param x Pose of pose x
+   * @param y Pose of pose y
+   * @return Cost of pose in costmap
+   */
+  double costAtPose(const double & x, const double & y);
+
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::string plugin_name_;
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;

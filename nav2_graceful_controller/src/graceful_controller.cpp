@@ -18,6 +18,7 @@
 #include "angles/angles.h"
 #include "nav2_core/controller_exceptions.hpp"
 #include "nav2_util/geometry_utils.hpp"
+#include "nav2_util/line_iterator.hpp"
 #include "nav2_graceful_controller/graceful_controller.hpp"
 #include "nav2_costmap_2d/costmap_filters/filter_values.hpp"
 
@@ -197,6 +198,17 @@ geometry_msgs::msg::TwistStamped GracefulController::computeVelocityCommands(
   std::vector<double> target_distances;
   computeDistanceAlongPath(transformed_plan.poses, target_distances);
 
+  const double inscribed_radius = costmap_ros_->getLayeredCostmap()->getInscribedRadius();
+  double pose_cost = costAtPose(pose.pose.position.x, pose.pose.position.y);
+  const double min_distance_to_obstacle = (-1.0 / params_->inflation_cost_scaling_factor) *
+                                            std::log(pose_cost / (nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE - 1)) +
+                                          inscribed_radius;
+  double max_lookahead = params_->max_lookahead;
+  if (min_distance_to_obstacle < params_->cost_scaling_dist) {
+    double range = params_->max_lookahead - params_->min_lookahead;
+    max_lookahead = params_->min_lookahead + range * (0.1 + (min_distance_to_obstacle / params_->cost_scaling_dist) * 0.9);
+  }
+
   // Work back from the end of plan to find valid target pose
   for (int i = transformed_plan.poses.size() - 1; i >= 0; --i) {
     // Underlying control law needs a single target pose, which should:
@@ -207,9 +219,9 @@ geometry_msgs::msg::TwistStamped GracefulController::computeVelocityCommands(
     double dist_to_target = target_distances[i];
 
     // Continue if target_pose is too far away from robot
-    if (dist_to_target > params_->max_lookahead) {continue;}
+    if (dist_to_target > max_lookahead) {continue;}
 
-    if (dist_to_goal < params_->max_lookahead) {
+    if (dist_to_goal < max_lookahead) {
       if (params_->prefer_final_rotation) {
         // Avoid unstability and big sweeping turns at the end of paths by
         // ignoring final heading
@@ -446,6 +458,21 @@ void GracefulController::validateOrientations(
     double yaw = std::atan2(dy, dx);
     path[i].pose.orientation = nav2_util::geometry_utils::orientationAroundZAxis(yaw);
   }
+}
+
+double GracefulController::costAtPose(const double & x, const double & y)
+{
+  unsigned int mx, my;
+
+  if (!costmap_ros_->getCostmap()->worldToMap(x, y, mx, my)) {
+    RCLCPP_FATAL(
+      logger_,
+      "The dimensions of the costmap is too small to fully include your robot's footprint, "
+      "thusly the robot cannot proceed further");
+  }
+
+  unsigned char cost = costmap_ros_->getCostmap()->getCost(mx, my);
+  return static_cast<double>(cost);
 }
 
 }  // namespace nav2_graceful_controller

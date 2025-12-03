@@ -53,6 +53,8 @@ struct Parameters
   double rotation_scaling_factor;
   bool allow_backward;
   double in_place_collision_resolution;
+  double inflation_cost_scaling_factor;
+  double cost_scaling_dist;
 };
 
 /**
