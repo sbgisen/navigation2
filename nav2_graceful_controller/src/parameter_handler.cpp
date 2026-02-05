@@ -78,6 +78,10 @@ ParameterHandler::ParameterHandler(
     node, plugin_name_ + ".footprint_scaling_factor", rclcpp::ParameterValue(0.0));
   declare_parameter_if_not_declared(
     node, plugin_name_ + ".footprint_scaling_step", rclcpp::ParameterValue(0.1));
+  declare_parameter_if_not_declared(
+    node, plugin_name_ + ".final_rotation_search_step", rclcpp::ParameterValue(0.1));
+  declare_parameter_if_not_declared(
+    node, plugin_name_ + ".cost_safety_margin", rclcpp::ParameterValue(50.0));
 
   node->get_parameter(plugin_name_ + ".transform_tolerance", params_.transform_tolerance);
   node->get_parameter(plugin_name_ + ".min_lookahead", params_.min_lookahead);
@@ -119,6 +123,10 @@ ParameterHandler::ParameterHandler(
     plugin_name_ + ".footprint_scaling_factor", params_.footprint_scaling_factor);
   node->get_parameter(
     plugin_name_ + ".footprint_scaling_step", params_.footprint_scaling_step);
+  node->get_parameter(
+    plugin_name_ + ".final_rotation_search_step", params_.final_rotation_search_step);
+  node->get_parameter(
+    plugin_name_ + ".cost_safety_margin", params_.cost_safety_margin);
 
   if (params_.initial_rotation && params_.allow_backward) {
     RCLCPP_WARN(
@@ -185,6 +193,10 @@ ParameterHandler::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
         params_.in_place_collision_resolution = parameter.as_double();
       } else if (name == plugin_name_ + ".final_rotation_tolerance") {
         params_.final_rotation_tolerance = parameter.as_double();
+      } else if (name == plugin_name_ + ".cost_safety_margin") {
+        params_.cost_safety_margin = parameter.as_double();
+      } else if (name == plugin_name_ + ".final_rotation_search_step") {
+        params_.final_rotation_search_step = parameter.as_double();
       }
     } else if (type == ParameterType::PARAMETER_BOOL) {
       if (name == plugin_name_ + ".initial_rotation") {

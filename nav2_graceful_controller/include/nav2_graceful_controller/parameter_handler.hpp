@@ -56,6 +56,8 @@ struct Parameters
   double final_rotation_tolerance;
   double footprint_scaling_linear_vel;
   double footprint_scaling_factor;
+  double final_rotation_search_step;
+  double cost_safety_margin;
   double footprint_scaling_step;
 };
 
