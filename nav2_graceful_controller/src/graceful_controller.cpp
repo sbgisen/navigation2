@@ -221,14 +221,14 @@ geometry_msgs::msg::TwistStamped GracefulController::computeVelocityCommands(
               final_rotation_target_pose, dist_to_target, dist_to_goal, final_rotation_local_plan, costmap_transform,
               final_rotation_cmd_vel)) {
           // Check Costs
-          double final_rotation_cost = getMaxCost(final_rotation_local_plan);
+          double final_rotation_cost = getMaxCost(final_rotation_local_plan, costmap_transform);
 
           // Determine the maximum valid cost based on robot footprint type
           double max_valid_cost = costmap_ros_->getUseRadius() ? nav2_costmap_2d::MAX_NON_OBSTACLE
                                                                : nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
 
           // Check if the final rotation path is risky
-          double safety_threshold = max_valid_cost - params_->cost_safety_margin;
+          double safety_threshold = max_valid_cost - params_->obstacle_cost_margin;
 
           if (final_rotation_cost >= safety_threshold) {
             // Try to find a better approach by searching spiral curves
@@ -243,7 +243,7 @@ geometry_msgs::msg::TwistStamped GracefulController::computeVelocityCommands(
               final_rotation_cmd_vel = best_spiral_cmd_vel;
               RCLCPP_INFO(
                 logger_, "Found safer spiral approach with max cost %.1f better than %.1f",
-                getMaxCost(final_rotation_local_plan) , final_rotation_cost);
+                getMaxCost(final_rotation_local_plan, costmap_transform) , final_rotation_cost);
             }
           } else {
             RCLCPP_INFO(logger_, "Found direct approach with max cost %.1f", final_rotation_cost);
@@ -449,17 +449,19 @@ geometry_msgs::msg::Twist GracefulController::rotateToTarget(double angle_to_tar
   return vel;
 }
 
-double GracefulController::getMaxCost(const nav_msgs::msg::Path & path)
+double GracefulController::getMaxCost(
+  const nav_msgs::msg::Path & path, geometry_msgs::msg::TransformStamped & costmap_transform)
 {
   double max_cost = 0.0;
 
-  for (const auto & pose : path.poses) {
+  for (int i = 0; i < static_cast<int>(path.poses.size()) - 1; ++i) {
+    geometry_msgs::msg::PoseStamped costmap_pose;
+    tf2::doTransform(path.poses[i], costmap_pose, costmap_transform);
     unsigned int mx, my;
-    if (costmap_ros_->getCostmap()->worldToMap(pose.pose.position.x, pose.pose.position.y, mx, my)) {
-      double cost = collision_checker_->pointCost(mx, my);
-      if (cost > max_cost) {
-        max_cost = cost;
-      }
+    if (costmap_ros_->getCostmap()->worldToMap(costmap_pose.pose.position.x, costmap_pose.pose.position.y, mx, my)) {
+      double cost;
+      cost = collision_checker_->pointCost(mx, my);
+      max_cost = std::max(max_cost, cost);
     }
   }
 
@@ -580,9 +582,9 @@ bool GracefulController::findBestApproachTrajectory(
     // Validate the candidate
     if (validateTargetPose(candidate_pose, dist_to_target, dist_to_goal, candidate_path, costmap_transform, candidate_cmd_vel)) {
 
-      double candidate_cost = getMaxCost(candidate_path);
+      auto candidate_max_cost = getMaxCost(candidate_path, costmap_transform);
 
-      if (candidate_cost < safety_cost) {
+      // if (candidate_max_cost < safety_cost) {
         // Calculate ETA
         // Avoid division by zero
         double speed = std::abs(candidate_cmd_vel.twist.linear.x);
@@ -592,16 +594,19 @@ bool GracefulController::findBestApproachTrajectory(
         double eta = path_len / speed;
 
         // Selection logic: Pick the fastest among the safe ones
-        if (!found_valid || eta < best_eta) {
+        if (eta < best_eta) {
           best_eta = eta;
           best_trajectory = candidate_path;
           best_cmd_vel = candidate_cmd_vel;
-          found_valid = true;
+          found_valid = candidate_max_cost < safety_cost;
         }
-      }
+      // }
     }
   }
 
+  if (!found_valid) {
+    RCLCPP_INFO(logger_, "No valid spiral approach trajectory found. (%.1f, %.1f)", getMaxCost(best_trajectory, costmap_transform), safety_cost);
+  }
   return found_valid;
 }
 

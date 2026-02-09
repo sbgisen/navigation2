@@ -188,7 +188,7 @@ protected:
    * @param path Path to check
    * @return Maximum cost encountered
    */
-  double getMaxCost(const nav_msgs::msg::Path & path);
+  double getMaxCost(const nav_msgs::msg::Path & path, geometry_msgs::msg::TransformStamped & costmap_transform);
 
   /**
    * @brief Compute the distance to each pose in a path
