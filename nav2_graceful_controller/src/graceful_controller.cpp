@@ -454,9 +454,9 @@ double GracefulController::getMaxCost(
 {
   double max_cost = 0.0;
 
-  for (int i = 0; i < static_cast<int>(path.poses.size()) - 1; ++i) {
+  for (const auto & pose : path.poses) {
     geometry_msgs::msg::PoseStamped costmap_pose;
-    tf2::doTransform(path.poses[i], costmap_pose, costmap_transform);
+    tf2::doTransform(pose, costmap_pose, costmap_transform);
     unsigned int mx, my;
     if (costmap_ros_->getCostmap()->worldToMap(costmap_pose.pose.position.x, costmap_pose.pose.position.y, mx, my)) {
       double cost;
