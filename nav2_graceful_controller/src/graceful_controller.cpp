@@ -55,6 +55,18 @@ void GracefulController::configure(
     params_->k_phi, params_->k_delta, params_->beta, params_->lambda, params_->slowdown_radius,
     params_->v_linear_min, params_->v_linear_max, params_->v_angular_max);
 
+  double max_valid_cost = costmap_ros_->getUseRadius()
+                            ? static_cast<double>(nav2_costmap_2d::MAX_NON_OBSTACLE)
+                            : static_cast<double>(nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE);
+
+  // Check if the final rotation path is risky
+  if (max_valid_cost - static_cast<double>(params_->obstacle_cost_margin) < 0.0) {
+    RCLCPP_WARN(
+      logger_, "obstacle_cost_margin (%d) is higher than max cost (%d).", params_->obstacle_cost_margin,
+      nav2_costmap_2d::MAX_NON_OBSTACLE);
+    throw nav2_core::NoValidControl("obstacle_cost_margin is higher than max cost.");
+  }
+
   // Initialize footprint collision checker
   collision_checker_ = std::make_unique<nav2_costmap_2d::
       FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *>>(costmap_ros_->getCostmap());
@@ -236,6 +248,7 @@ void GracefulController::setPlan(const nav_msgs::msg::Path & path)
   path_handler_->setPlan(path);
   goal_reached_ = false;
   do_initial_rotation_ = true;
+  safe_approach_angle_.reset();
 }
 
 void GracefulController::setSpeedLimit(
@@ -319,20 +332,14 @@ bool GracefulController::validateTargetPoseOnApproach(
 
     // Check if the final rotation path is risky
     double safety_threshold = max_valid_cost - static_cast<double>(params_->obstacle_cost_margin);
-    if (safety_threshold < 0.0) {
-      RCLCPP_WARN(
-        logger_, "obstacle_cost_margin (%d) is higher than max cost (%d).", params_->obstacle_cost_margin,
-        nav2_costmap_2d::MAX_NON_OBSTACLE);
-      throw nav2_core::NoValidControl("obstacle_cost_margin is higher than max cost.");
-    }
     double traj_max_cost = getMaxCost(trajectory, costmap_transform);
     if (traj_max_cost >= safety_threshold) {
       // Try to find a better approach by searching spiral curves
       findBestApproachTrajectory(target_pose, dist_to_target, dist_to_goal, costmap_transform, max_valid_cost, trajectory, cmd_vel);
 
       RCLCPP_INFO(
-        logger_, "Found safer spiral approach with max cost %.1f better than %.1f",
-        getMaxCost(trajectory, costmap_transform), traj_max_cost);
+        logger_, "Found safer spiral approach(%.1f rad) with max cost %.1f better than %.1f",
+         tf2::getYaw(target_pose.pose.orientation), getMaxCost(trajectory, costmap_transform), traj_max_cost);
     } else {
       RCLCPP_INFO(logger_, "Found direct approach with max cost %.1f", traj_max_cost);
     }
@@ -567,6 +574,9 @@ bool GracefulController::findBestApproachTrajectory(
 
   for (int i = 0; i < 2 * M_PI / params_->final_rotation_search_step; ++i) {
     double angle = static_cast<double>(i) * params_->final_rotation_search_step;
+    if (safe_approach_angle_.has_value()) {
+      angle += safe_approach_angle_.value();
+    }
 
     // Create candidate pose
     auto candidate_pose = target_pose;
@@ -594,22 +604,25 @@ bool GracefulController::findBestApproachTrajectory(
         auto cmd = control_law_->calculateRegularVelocity(candidate_pose.pose, current_pose.pose, reversing);
         double speed = std::abs(cmd.linear.x);
         // Avoid division by zero
-        if (speed < 1e-3) {
-          speed = 1e-3;
-        }
+        speed = std::max(speed, 1e-3);
         double step_dist = nav2_util::geometry_utils::euclidean_distance(current_pose.pose, next_pose.pose);
         double step_time = step_dist / speed;
         eta += step_time;
       }
 
       // Selection logic: Pick the fastest among the safe ones
-      if (eta < best_eta) {
+      bool same_approach_angle = safe_approach_angle_.has_value() && i == 0;
+      if (eta < best_eta || same_approach_angle) {
         best_eta = eta;
-        found_valid = candidate_cost < safety_cost;
-        if (found_valid) {
+        if (candidate_cost < safety_cost) {
           best_trajectory = candidate_path;
           best_cmd_vel = candidate_cmd_vel;
           target_pose = candidate_pose;
+          found_valid = true;
+          safe_approach_angle_ = angle;
+          if (same_approach_angle) {
+            break;
+          }
         }
       }
     }

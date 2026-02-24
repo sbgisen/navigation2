@@ -238,6 +238,7 @@ protected:
 
   // True from the time a new path arrives until we have completed an initial rotation
   bool do_initial_rotation_;
+  std::optional<double> safe_approach_angle_;
 
   std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>> transformed_plan_pub_;
   std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>> local_plan_pub_;
